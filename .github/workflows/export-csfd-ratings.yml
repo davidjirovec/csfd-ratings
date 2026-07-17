@@ -37,7 +37,8 @@ jobs:
         run: npm run export
         env:
           CSFD_USER: 115923-bon-go
-          ALL_PAGES_DELAY_MS: 2500
+          PAGE_DELAY_MS: 5000
+          PAGE_DELAY_JITTER_MS: 1500
           MIN_EXPECTED_RATINGS: 1300
           MAX_DROP_RATIO: 0.01
 

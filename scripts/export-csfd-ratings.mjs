@@ -7,11 +7,24 @@ import { csfd } from "node-csfd-api";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const USERNAME = process.env.CSFD_USER ?? "115923-bon-go";
 const OUTPUT_PATH = path.resolve(ROOT, process.env.OUTPUT_PATH ?? "data/csfd-ratings.json");
-const ALL_PAGES_DELAY_MS = Number(process.env.ALL_PAGES_DELAY_MS ?? "2500");
+const PAGE_DELAY_MS = Number(process.env.PAGE_DELAY_MS ?? "5000");
+const PAGE_DELAY_JITTER_MS = Number(process.env.PAGE_DELAY_JITTER_MS ?? "1500");
 const MIN_EXPECTED_RATINGS = Number(process.env.MIN_EXPECTED_RATINGS ?? "1300");
 const MAX_DROP_RATIO = Number(process.env.MAX_DROP_RATIO ?? "0.01");
 const ALLOW_RATING_DROP = process.env.ALLOW_RATING_DROP === "true";
-const RETRY_DELAYS_MS = [0, 15_000, 60_000];
+const RATINGS_PER_PAGE = 50;
+const PAGE_RETRY_DELAYS_MS = [0, 15_000, 60_000, 180_000];
+const REQUEST_OPTIONS = {
+  request: {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        + "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "Sec-Ch-Ua": "\"Google Chrome\";v=\"151\", \"Chromium\";v=\"151\", "
+        + "\"Not_A Brand\";v=\"24\"",
+      "Sec-Ch-Ua-Platform": "\"Windows\"",
+    },
+  },
+};
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -95,38 +108,180 @@ export const validateSnapshot = (snapshot, previousSnapshot = null) => {
   }
 };
 
+export const minimumExpectedRatingCount = (previousSnapshot = null) => {
+  const previousCount = previousSnapshot?.count ?? previousSnapshot?.ratings?.length ?? 0;
+  if (ALLOW_RATING_DROP || previousCount === 0) {
+    return MIN_EXPECTED_RATINGS;
+  }
+  return Math.max(MIN_EXPECTED_RATINGS, Math.floor(previousCount * (1 - MAX_DROP_RATIO)));
+};
+
 const ratingsAreUnchanged = (snapshot, previousSnapshot) => previousSnapshot
   && JSON.stringify(snapshot.ratings) === JSON.stringify(previousSnapshot.ratings);
 
-const fetchSnapshot = async () => {
-  const ratings = await csfd.userRatings(USERNAME, {
-    allPages: true,
-    allPagesDelay: ALL_PAGES_DELAY_MS,
-    onProgress: (page, total) => console.log(`Fetched ČSFD ratings page ${page}/${total}`),
-  });
-  return createSnapshot(ratings);
-};
+const canonicalUrls = (ratings) => ratings.map(({ url }) => canonicalizeCsfdUrl(url));
 
-const fetchWithRetries = async (previousSnapshot) => {
-  let lastError;
-
-  for (const [index, delay] of RETRY_DELAYS_MS.entries()) {
-    if (delay > 0) {
-      console.log(`Retrying in ${delay / 1000} seconds...`);
-      await wait(delay);
-    }
-
-    try {
-      const snapshot = await fetchSnapshot();
-      validateSnapshot(snapshot, previousSnapshot);
-      return snapshot;
-    } catch (error) {
-      lastError = error;
-      console.error(`Attempt ${index + 1}/${RETRY_DELAYS_MS.length} failed: ${error.message}`);
-    }
+export const validateRatingPage = ({
+  ratings,
+  page,
+  minimumPageCount,
+  minimumFinalPageSize,
+  pageSize,
+  seenUrls,
+}) => {
+  if (!Array.isArray(ratings)) {
+    throw new Error(`Page ${page} returned a non-array result.`);
   }
 
-  throw lastError;
+  const minimumPageSize = page < minimumPageCount
+    ? pageSize
+    : page === minimumPageCount
+      ? minimumFinalPageSize
+      : 0;
+  if (ratings.length < minimumPageSize) {
+    throw new Error(
+      `Page ${page} contains only ${ratings.length} ratings; expected at least ${minimumPageSize}.`,
+    );
+  }
+
+  const urls = canonicalUrls(ratings);
+  const newUrls = urls.filter((url) => !seenUrls.has(url));
+  if (ratings.length > 0 && newUrls.length === 0) {
+    throw new Error(`Page ${page} repeats only ratings already fetched.`);
+  }
+
+  return newUrls;
+};
+
+const fetchRatingPage = async ({
+  page,
+  fetchPage,
+  minimumPageCount,
+  minimumFinalPageSize,
+  pageSize,
+  retryDelays,
+  seenUrls,
+  waitFor,
+  log,
+  logError,
+}, attempt = 0) => {
+  const delay = retryDelays[attempt];
+  if (delay > 0) {
+    log(`Retrying ČSFD ratings page ${page} in ${delay / 1000} seconds...`);
+    await waitFor(delay);
+  }
+
+  let terminalPageCandidate = false;
+  try {
+    const startedAt = Date.now();
+    const ratings = await fetchPage(page);
+    terminalPageCandidate = page > minimumPageCount && ratings.length === 0;
+    if (terminalPageCandidate && attempt === retryDelays.length - 1) {
+      log(`Confirmed end of ČSFD ratings at empty page ${page}.`);
+      return { ratings, newUrls: [] };
+    }
+
+    const newUrls = validateRatingPage({
+      ratings,
+      page,
+      minimumPageCount,
+      minimumFinalPageSize,
+      pageSize,
+      seenUrls,
+    });
+    if (terminalPageCandidate) {
+      throw new Error(`Page ${page} is empty; retrying to confirm the end of pagination.`);
+    }
+
+    const seconds = ((Date.now() - startedAt) / 1000).toFixed(2);
+    log(
+      `Fetched ČSFD ratings page ${page}: ${ratings.length} rows, `
+      + `${newUrls.length} new (${seconds}s).`,
+    );
+    return { ratings, newUrls };
+  } catch (error) {
+    logError(
+      `ČSFD ratings page ${page} attempt ${attempt + 1}/${retryDelays.length} failed: `
+      + error.message,
+    );
+    if (attempt + 1 < retryDelays.length) {
+      return fetchRatingPage({
+        page,
+        fetchPage,
+        minimumPageCount,
+        minimumFinalPageSize,
+        pageSize,
+        retryDelays,
+        seenUrls,
+        waitFor,
+        log,
+        logError,
+      }, attempt + 1);
+    }
+    if (terminalPageCandidate) {
+      log(`Confirmed end of ČSFD ratings at empty page ${page}.`);
+      return { ratings: [], newUrls: [] };
+    }
+    throw error;
+  }
+};
+
+export const fetchAllRatingPages = async ({
+  fetchPage,
+  minimumExpectedCount,
+  pageSize = RATINGS_PER_PAGE,
+  pageDelayMs = PAGE_DELAY_MS,
+  pageDelayJitterMs = PAGE_DELAY_JITTER_MS,
+  retryDelays = PAGE_RETRY_DELAYS_MS,
+  waitFor = wait,
+  random = Math.random,
+  log = console.log,
+  logError = console.error,
+}) => {
+  const minimumPageCount = Math.ceil(minimumExpectedCount / pageSize);
+  const minimumFinalPageSize = minimumExpectedCount - ((minimumPageCount - 1) * pageSize);
+
+  const collectPage = async (page, pages, seenUrls) => {
+    const result = await fetchRatingPage({
+      page,
+      fetchPage,
+      minimumPageCount,
+      minimumFinalPageSize,
+      pageSize,
+      retryDelays,
+      seenUrls,
+      waitFor,
+      log,
+      logError,
+    });
+    if (result.ratings.length === 0) {
+      return pages.flat();
+    }
+
+    const nextPages = [...pages, result.ratings];
+    const reachedLastPage = page >= minimumPageCount && result.ratings.length < pageSize;
+    if (reachedLastPage) {
+      return nextPages.flat();
+    }
+
+    const jitter = Math.floor(random() * (pageDelayJitterMs + 1));
+    await waitFor(pageDelayMs + jitter);
+    return collectPage(
+      page + 1,
+      nextPages,
+      new Set([...seenUrls, ...result.newUrls]),
+    );
+  };
+
+  return collectPage(1, [], new Set());
+};
+
+const fetchSnapshot = async (previousSnapshot) => {
+  const ratings = await fetchAllRatingPages({
+    fetchPage: (page) => csfd.userRatings(USERNAME, { page }, REQUEST_OPTIONS),
+    minimumExpectedCount: minimumExpectedRatingCount(previousSnapshot),
+  });
+  return createSnapshot(ratings);
 };
 
 const writeSnapshotAtomically = async (snapshot) => {
@@ -138,7 +293,8 @@ const writeSnapshotAtomically = async (snapshot) => {
 
 export const main = async () => {
   const previousSnapshot = await readPreviousSnapshot();
-  const snapshot = await fetchWithRetries(previousSnapshot);
+  const snapshot = await fetchSnapshot(previousSnapshot);
+  validateSnapshot(snapshot, previousSnapshot);
 
   if (ratingsAreUnchanged(snapshot, previousSnapshot)) {
     console.log(`No rating changes (${snapshot.count} ratings).`);
