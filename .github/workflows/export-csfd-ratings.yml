@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * *"
+  push:
+    paths:
+      - package.json
 
 permissions:
   contents: write
@@ -27,8 +30,10 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Refresh dependency lock
+        run: |
+          npm install --package-lock-only
+          npm ci
 
       - name: Run tests
         run: npm test
@@ -42,14 +47,14 @@ jobs:
           MIN_EXPECTED_RATINGS: 1300
           MAX_DROP_RATIO: 0.01
 
-      - name: Commit changed export
+      - name: Commit changed export and lockfile
         run: |
-          if [[ -z "$(git status --porcelain -- data/csfd-ratings.json)" ]]; then
-            echo "No rating changes to commit."
+          if [[ -z "$(git status --porcelain -- package-lock.json data/csfd-ratings.json)" ]]; then
+            echo "No dependency or rating changes to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/csfd-ratings.json
-          git commit -m "Update ČSFD ratings"
+          git add package-lock.json data/csfd-ratings.json
+          git commit -m "Update ČSFD exporter"
           git push
