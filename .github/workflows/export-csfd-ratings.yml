@@ -59,9 +59,11 @@ jobs:
             console.log("ČSFD challenge difficulty:", parsed?.rules?.difficulty);
           }
           console.log("ČSFD refresh header:", response.headers.get("refresh"));
+          console.log("ČSFD set-cookie names:", typeof response.headers.getSetCookie === "function" ? response.headers.getSetCookie().map((cookie) => cookie.split("=", 1)[0]).join(", ") : "unavailable");
           EOF
 
       - name: Export all ČSFD ratings
+        if: false
         run: npm run export
         env:
           CSFD_USER: 115923-bon-go
