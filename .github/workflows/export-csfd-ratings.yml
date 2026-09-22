@@ -8,6 +8,7 @@ on:
     paths:
       - package.json
       - .github/workflows/export-csfd-ratings.yml
+      - scripts/patch-node-csfd-api.mjs
 
 permissions:
   contents: write
