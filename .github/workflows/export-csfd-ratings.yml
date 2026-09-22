@@ -7,6 +7,7 @@ on:
   push:
     paths:
       - package.json
+      - .github/workflows/export-csfd-ratings.yml
 
 permissions:
   contents: write
@@ -35,6 +36,29 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Diagnose ČSFD anti-bot challenge
+        run: |
+          node --input-type=module <<'EOF'
+          const url = "https://www.csfd.cz/uzivatel/115923-bon-go/hodnoceni/";
+          const headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "Sec-Ch-Ua": "\"Google Chrome\";v=\"151\", \"Chromium\";v=\"151\", \"Not_A Brand\";v=\"24\"",
+            "Sec-Ch-Ua-Platform": "\"Windows\"",
+            "Accept-Language": "cs-CZ,cs;q=0.9,en-US;q=0.8,en;q=0.7",
+          };
+          const response = await fetch(url, { headers });
+          const html = await response.text();
+          const match = html.match(/<script id="anubis_challenge" type="application\/json">([\s\S]*?)<\/script>/);
+          console.log("ČSFD diagnostic status:", response.status);
+          console.log("ČSFD challenge detected:", html.includes("anubis_challenge"));
+          if (match) {
+            const parsed = JSON.parse(match[1].trim());
+            console.log("ČSFD challenge algorithm:", parsed?.rules?.algorithm);
+            console.log("ČSFD challenge difficulty:", parsed?.rules?.difficulty);
+          }
+          console.log("ČSFD refresh header:", response.headers.get("refresh"));
+          EOF
 
       - name: Export all ČSFD ratings
         run: npm run export
