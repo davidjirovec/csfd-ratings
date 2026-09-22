@@ -63,7 +63,6 @@ jobs:
           EOF
 
       - name: Export all ČSFD ratings
-        if: false
         run: npm run export
         env:
           CSFD_USER: 115923-bon-go
