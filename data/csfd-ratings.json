@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-11T11:00:26.764Z",
+  "generatedAt": "2026-11-15T10:56:09.064Z",
   "source": "https://www.csfd.cz/uzivatel/115923-bon-go/hodnoceni/",
   "user": "115923-bon-go",
-  "count": 1370,
+  "count": 1371,
   "ratings": [
     {
       "csfdId": 3311,
@@ -7564,6 +7564,16 @@
       "url": "https://www.csfd.cz/film/32975-odysea-rockovych-mimozemstanu/",
       "userRating": 4,
       "userDate": "2015-03-08"
+    },
+    {
+      "csfdId": 1580037,
+      "title": "Odyssea",
+      "normalizedTitle": "odyssea",
+      "year": 2026,
+      "type": "film",
+      "url": "https://www.csfd.cz/film/1580037-odyssea/",
+      "userRating": 5,
+      "userDate": "2026-11-14"
     },
     {
       "csfdId": 310585,
