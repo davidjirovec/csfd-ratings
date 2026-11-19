@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-15T10:56:09.064Z",
+  "generatedAt": "2026-11-19T11:42:36.309Z",
   "source": "https://www.csfd.cz/uzivatel/115923-bon-go/hodnoceni/",
   "user": "115923-bon-go",
-  "count": 1371,
+  "count": 1372,
   "ratings": [
     {
       "csfdId": 3311,
@@ -8174,6 +8174,16 @@
       "url": "https://www.csfd.cz/film/7123-pink-floyd-the-wall/",
       "userRating": 3,
       "userDate": "2009-12-14"
+    },
+    {
+      "csfdId": 239255,
+      "title": "Piráti na vlnách",
+      "normalizedTitle": "pirati na vlnach",
+      "year": 2009,
+      "type": "film",
+      "url": "https://www.csfd.cz/film/239255-pirati-na-vlnach/",
+      "userRating": 4,
+      "userDate": "2026-11-18"
     },
     {
       "csfdId": 31875,
